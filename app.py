@@ -16,14 +16,24 @@ if "selected_cal_date" not in st.session_state:
     st.session_state.selected_cal_date = date.today().isoformat()
 if "success_msg" not in st.session_state:
     st.session_state.success_msg = None
+if "active_task_id" not in st.session_state:
+    st.session_state.active_task_id = None
+if "keep_dialog_open" not in st.session_state:
+    st.session_state.keep_dialog_open = False
 
 # Render notifikasi toast jika ada pesan sukses dari action sebelumnya
 if st.session_state.success_msg:
-    st.toast(st.session_state.success_msg, icon="✨")
+    st.toast(st.session_state.success_msg, icon="âœ¨")
     st.session_state.success_msg = None
 
-# Autorefresh aktif di halaman utama
-st_autorefresh(interval=5000, key="apple_glass_autorefresh")
+# Deteksi penutupan dialog via tombol X (bukan save/delete)
+_prev_dialog_seen = st.session_state.pop("_dialog_seen", False)
+if _prev_dialog_seen and not st.session_state.get("keep_dialog_open", False):
+    st.session_state.active_task_id = None
+
+# Autorefresh hanya aktif ketika tidak ada dialog yang sedang terbuka
+if st.session_state.active_task_id is None:
+    st_autorefresh(interval=5000, key="apple_glass_autorefresh")
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -185,8 +195,14 @@ today_display = format_id_date(today)
 tomorrow_display = format_id_date(tomorrow)
 
 # 4. Modal Dialog Workspace (Menggunakan form agar stabil tanpa mental saat diketik/upload)
+def _open_task_dialog(task_id):
+    """Callback on_click: set active_task_id sebelum script body berjalan.
+    Ini memastikan autorefresh tidak di-mount saat dialog aktif."""
+    st.session_state.active_task_id = task_id
+
 @st.dialog("Task Workspace")
 def task_detail_modal(task_id):
+    st.session_state["_dialog_seen"] = True  # Tandai dialog sedang aktif (untuk deteksi X close)
     task = db.fetch_task_by_id(task_id)
     
     if not task:
@@ -207,6 +223,7 @@ def task_detail_modal(task_id):
                 except:
                     pass
                 db.update_media_path(task['id'], "video_path", "")
+                st.session_state.keep_dialog_open = True
                 st.rerun()
 
         if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
@@ -217,6 +234,7 @@ def task_detail_modal(task_id):
                 except:
                     pass
                 db.update_media_path(task['id'], "thumbnail_path", "")
+                st.session_state.keep_dialog_open = True
                 st.rerun()
 
         with st.expander("Upload / Ganti Media"):
@@ -227,6 +245,7 @@ def task_detail_modal(task_id):
                 with open(v_path, "wb") as f:
                     f.write(up_vid.getbuffer())
                 db.update_media_path(task['id'], "video_path", v_path)
+                st.session_state.keep_dialog_open = True
                 st.rerun()
 
             up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}")
@@ -236,6 +255,7 @@ def task_detail_modal(task_id):
                 with open(i_path, "wb") as f:
                     f.write(up_img.getbuffer())
                 db.update_media_path(task['id'], "thumbnail_path", i_path)
+                st.session_state.keep_dialog_open = True
                 st.rerun()
 
     with c_right:
@@ -259,19 +279,26 @@ def task_detail_modal(task_id):
         edit_asset_link = st.text_input("Link Cloud Storage", value=task.get("asset_link") or "", key=f"d_lnk_{task['id']}")
 
         st.write("")
-        if st.button("💾 Simpan Perubahan", use_container_width=True, type="primary", key=f"d_save_{task['id']}"):
+        if st.button("ðŸ’¾ Simpan Perubahan", use_container_width=True, type="primary", key=f"d_save_{task['id']}"):
             platform_str = ", ".join(edit_platforms) if edit_platforms else "General"
             db.update_task_details(
                 task["id"], edit_title, edit_assignee, str(edit_deadline),
                 platform_str, edit_status, edit_type, edit_asset_link.strip(), desc.strip()
             )
+            st.session_state.active_task_id = None
             st.session_state.success_msg = "Perubahan brief berhasil disimpan!"
             st.rerun()
 
-        if st.button("🗑️ Hapus Task", use_container_width=True, key=f"d_del_{task['id']}"):
+        if st.button("ðŸ—‘ï¸ Hapus Task", use_container_width=True, key=f"d_del_{task['id']}"):
             db.delete_task(task["id"])
+            st.session_state.active_task_id = None
             st.session_state.success_msg = "Task berhasil dihapus."
             st.rerun()
+
+# Reopen dialog jika ada upload/hapus media yang memerlukan rerun internal
+if st.session_state.get("keep_dialog_open") and st.session_state.get("active_task_id"):
+    st.session_state.keep_dialog_open = False
+    task_detail_modal(st.session_state.active_task_id)
 
 # 5. Top Navbar Header
 nav_left, nav_right = st.columns([1.0, 3.0], gap="medium")
@@ -279,10 +306,10 @@ nav_left, nav_right = st.columns([1.0, 3.0], gap="medium")
 with nav_left:
     st.markdown("""
         <div style='display: flex; align-items: center; gap: 12px; padding-top: 4px;'>
-            <div style='background: linear-gradient(135deg, #ffd60a 0%, #f59e0b 100%); width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #000000; font-size: 16px;'>⚡</div>
+            <div style='background: linear-gradient(135deg, #ffd60a 0%, #f59e0b 100%); width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-weight: 900; color: #000000; font-size: 16px;'>âš¡</div>
             <div>
                 <div style='font-size: 15px; font-weight: 800; color: #f5f5f7; line-height: 1.1;'>Creative Dept</div>
-                <div style='font-size: 11px; font-weight: 600; color: #86868b; margin-top: 1px;'>Honda Cengkareng • <span style='color: #34d399;'>● Synced</span></div>
+                <div style='font-size: 11px; font-weight: 600; color: #86868b; margin-top: 1px;'>Honda Cengkareng â€¢ <span style='color: #34d399;'>â— Synced</span></div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -334,7 +361,7 @@ if menu == "Home":
         st.markdown("<div style='font-size: 12px; color: #86868b; margin-bottom: 6px;'>[ Content Pipeline ]</div>", unsafe_allow_html=True)
         st.markdown("<div style='font-size: 42px; font-weight: 800; line-height: 1.1; letter-spacing: -1.5px; color: #f5f5f7; margin-bottom: 16px;'>Creative Department <br><span style='color: #ffd60a;'>of Honda Cengkareng.</span></div>", unsafe_allow_html=True)
         st.markdown("<p style='color: #a1a1a6; font-size: 15px; line-height: 1.6; max-width: 620px; margin-bottom: 24px;'>Ruang pusat kurasi brief, aset visual, draft video promo, dan automasi alur produksi konten harian secara tersentralisasi.</p>", unsafe_allow_html=True)
-        st.markdown("<div style='font-size: 12px; color: #86868b;'>Sync Status: <strong style='color: #34d399;'>● Cloud Active</strong></div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size: 12px; color: #86868b;'>Sync Status: <strong style='color: #34d399;'>â— Cloud Active</strong></div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height: 1px; background: rgba(255,255,255,0.06); margin: 30px 0 24px 0;'></div>", unsafe_allow_html=True)
 
@@ -349,7 +376,7 @@ if menu == "Home":
             with th1:
                 st.markdown(f"""
                     <div>
-                        <div style='font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #ffd60a; margin-bottom: 2px;'>● HARI INI</div>
+                        <div style='font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #ffd60a; margin-bottom: 2px;'>â— HARI INI</div>
                         <div style='font-size: 17px; font-weight: 800; letter-spacing: -0.4px; color: #f5f5f7;'>{today_display}</div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -369,7 +396,7 @@ if menu == "Home":
                     c_type = t.get("content_type", "Video")
                     c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
 
-                    if st.button(f"📌 {t['title']}", key=f"tod_btn_{t['id']}", use_container_width=True):
+                    if st.button(f"📌 {t['title']}", key=f"tod_btn_{t['id']}", use_container_width=True, on_click=_open_task_dialog, args=(t["id"],)):
                         task_detail_modal(t["id"])
                     
                     st.markdown(f"""
@@ -411,7 +438,7 @@ if menu == "Home":
                     c_type = t.get("content_type", "Video")
                     c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
 
-                    if st.button(f"📌 {t['title']}", key=f"tmrw_btn_{t['id']}", use_container_width=True):
+                    if st.button(f"📌 {t['title']}", key=f"tmrw_btn_{t['id']}", use_container_width=True, on_click=_open_task_dialog, args=(t["id"],)):
                         task_detail_modal(t["id"])
                     
                     st.markdown(f"""
@@ -539,7 +566,7 @@ elif menu == "Kanban Board":
                     if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
                         st.image(task["thumbnail_path"], use_container_width=True)
 
-                    if st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True):
+                    if st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True, on_click=_open_task_dialog, args=(task["id"],)):
                         task_detail_modal(task["id"])
 
                     st.caption(f"👤 {task['assignee']} • 📅 {task['deadline']}")
@@ -642,7 +669,7 @@ elif menu == "Calendar":
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    if st.button(f"📌 {task['title']}", key=f"cal_card_{task['id']}", use_container_width=True):
+                    if st.button(f"📌 {task['title']}", key=f"cal_card_{task['id']}", use_container_width=True, on_click=_open_task_dialog, args=(task["id"],)):
                         task_detail_modal(task["id"])
 
                 with card_c2:
