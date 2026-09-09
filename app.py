@@ -9,14 +9,25 @@ import database as db
 # 1. Inisialisasi & Setup Halaman (Sidebar dihilangkan total)
 st.set_page_config(page_title="Content Production Hub", layout="wide", initial_sidebar_state="collapsed")
 
-# Session state untuk pelacakan modal dan menu aktif
+# Session state untuk pelacakan modal, navigasi, dialog status, dan pesan notifikasi
 if "active_task_id" not in st.session_state:
     st.session_state.active_task_id = None
+if "is_dialog_open" not in st.session_state:
+    st.session_state.is_dialog_open = False
 if "current_nav" not in st.session_state:
     st.session_state.current_nav = "Home"
+if "selected_cal_date" not in st.session_state:
+    st.session_state.selected_cal_date = date.today().isoformat()
+if "success_msg" not in st.session_state:
+    st.session_state.success_msg = None
 
-# Autorefresh HANYA aktif jika tidak ada modal dialog yang sedang dibuka
-if st.session_state.active_task_id is None:
+# Render notifikasi toast jika ada pesan sukses dari action sebelumnya
+if st.session_state.success_msg:
+    st.toast(st.session_state.success_msg, icon="✨")
+    st.session_state.success_msg = None
+
+# Autorefresh HANYA aktif jika dialog benar-benar ditutup
+if not st.session_state.is_dialog_open and st.session_state.active_task_id is None:
     st_autorefresh(interval=5000, key="apple_glass_autorefresh")
 
 UPLOAD_DIR = "uploads"
@@ -58,6 +69,78 @@ st.markdown("""
         div[data-testid="stRadio"] label:hover p {
             color: #ffd60a !important;
         }
+
+        /* ========================================================= */
+        /* STYLING GRID TOMBOL KALENDER SERAGAM & PRESISI            */
+        /* ========================================================= */
+        div[data-testid="stButton"] button[kind="secondary"],
+        div[data-testid="stButton"] button[kind="primary"] {
+            box-sizing: border-box !important;
+            border-radius: 12px !important;
+            height: 50px !important;
+            min-height: 50px !important;
+            max-height: 50px !important;
+            width: 100% !important;
+            margin: 0 !important;
+            transform: none !important;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        /* Tombol Tanggal Default (Tidak Dipilih) */
+        div[data-testid="stButton"] button[kind="secondary"] {
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            color: #f5f5f7 !important;
+            font-size: 15px !important;
+            font-weight: 600 !important;
+        }
+
+        div[data-testid="stButton"] button[kind="secondary"]:hover {
+            border-color: rgba(255, 214, 10, 0.4) !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+            color: #ffd60a !important;
+        }
+
+        /* Tombol Tanggal Aktif Terpilih (Emas menyala, ukuran tetap sejajar rata) */
+        div[data-testid="stButton"] button[kind="primary"] {
+            background: linear-gradient(135deg, #ffd60a 0%, #f59e0b 100%) !important;
+            border: 1px solid #ffd60a !important;
+            box-shadow: 0 0 16px rgba(255, 214, 10, 0.3) !important;
+        }
+
+        div[data-testid="stButton"] button[kind="primary"] p {
+            color: #000000 !important;
+            font-weight: 800 !important;
+            font-size: 15px !important;
+        }
+
+        div[data-testid="stButton"] button[kind="primary"]:hover {
+            background: linear-gradient(135deg, #ffe033 0%, #fbbf24 100%) !important;
+            border-color: #ffd60a !important;
+        }
+
+        /* ========================================================= */
+        /* FIX MULTISELECT: HILANGKAN BULATAN KURSOR HITAM          */
+        /* ========================================================= */
+        div[data-testid="stMultiSelect"] span[data-baseweb="tag"] + div {
+            background: transparent !important;
+            box-shadow: none !important;
+            width: auto !important;
+        }
+
+        div[data-testid="stMultiSelect"] input {
+            background: transparent !important;
+            color: #f5f5f7 !important;
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+            padding: 0 4px !important;
+        }
+
+        div[data-baseweb="select"] input {
+            box-shadow: none !important;
+            background: none !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -70,6 +153,7 @@ TYPE_CONFIG = {
 COLUMNS_STATUS = ["Ideation", "Shooting", "Editing", "Done"]
 AVAILABLE_PLATFORMS = ["TikTok", "Instagram Reels", "YouTube", "Banner / Print", "Instagram Feed", "Commercial Ad"]
 AVAILABLE_TYPES = ["Video", "Poster", "Campaign Poster"]
+NAV_OPTIONS = ["Home", "Kanban Board", "Calendar", "Create Task", "Analytics"]
 
 all_tasks = db.fetch_tasks()
 today = date.today()
@@ -92,17 +176,32 @@ def format_id_date(d):
     b = BULAN_MAP.get(d.month, d.strftime("%B"))
     return f"{h}, {d.day:02d} {b} {d.year}"
 
+def parse_platforms(plat_val):
+    if not plat_val:
+        return []
+    return [p.strip() for p in plat_val.split(",") if p.strip()]
+
+def format_platform_display(plat_val):
+    platforms = parse_platforms(plat_val)
+    if not platforms:
+        return "-"
+    if len(platforms) == 1:
+        return platforms[0]
+    return f"{platforms[0]} +{len(platforms)-1}"
+
 today_display = format_id_date(today)
 tomorrow_display = format_id_date(tomorrow)
 
 # 4. Modal Dialog Workspace
 @st.dialog("Task Workspace")
 def task_detail_modal(task_id):
+    st.session_state.is_dialog_open = True
     task = db.fetch_task_by_id(task_id)
     
     if not task:
         st.error("Task tidak ditemukan.")
         st.session_state.active_task_id = None
+        st.session_state.is_dialog_open = False
         st.rerun()
         return
 
@@ -157,31 +256,40 @@ def task_detail_modal(task_id):
         edit_deadline = st.date_input("Deadline", value=curr_date)
 
         edit_type = st.selectbox("Tipe", AVAILABLE_TYPES, index=AVAILABLE_TYPES.index(task.get("content_type", "Video")) if task.get("content_type") in AVAILABLE_TYPES else 0)
-        edit_platform = st.selectbox("Platform", AVAILABLE_PLATFORMS, index=AVAILABLE_PLATFORMS.index(task["platform"]) if task["platform"] in AVAILABLE_PLATFORMS else 0)
+
+        existing_plats = parse_platforms(task.get("platform", ""))
+        valid_defaults = [p for p in existing_plats if p in AVAILABLE_PLATFORMS]
+        edit_platforms = st.multiselect("Platform Target", AVAILABLE_PLATFORMS, default=valid_defaults)
+
         edit_status = st.selectbox("Status", COLUMNS_STATUS, index=COLUMNS_STATUS.index(task["status"]) if task["status"] in COLUMNS_STATUS else 0)
         edit_asset_link = st.text_input("Link Cloud Storage", value=task.get("asset_link") or "")
 
         st.write("")
         if st.button("💾 Simpan Perubahan", use_container_width=True, type="primary"):
+            platform_str = ", ".join(edit_platforms) if edit_platforms else "General"
             db.update_task_details(
                 task["id"], edit_title, edit_assignee, str(edit_deadline),
-                edit_platform, edit_status, edit_type, edit_asset_link.strip(), desc.strip()
+                platform_str, edit_status, edit_type, edit_asset_link.strip(), desc.strip()
             )
             st.session_state.active_task_id = None
-            st.toast("Perubahan tersimpan!", icon="✅")
+            st.session_state.is_dialog_open = False
+            st.session_state.success_msg = "Perubahan brief berhasil disimpan!"
             st.rerun()
 
         if st.button("🗑️ Hapus Task", use_container_width=True):
             db.delete_task(task["id"])
             st.session_state.active_task_id = None
+            st.session_state.is_dialog_open = False
+            st.session_state.success_msg = "Task berhasil dihapus."
             st.rerun()
 
     if st.button("✖ Tutup Jendela", use_container_width=True):
         st.session_state.active_task_id = None
+        st.session_state.is_dialog_open = False
         st.rerun()
 
 # 5. Top Navbar Header
-nav_left, nav_right = st.columns([1.1, 2.9], gap="medium")
+nav_left, nav_right = st.columns([1.0, 3.0], gap="medium")
 
 with nav_left:
     st.markdown("""
@@ -195,18 +303,19 @@ with nav_left:
     """, unsafe_allow_html=True)
 
 with nav_right:
+    current_idx = NAV_OPTIONS.index(st.session_state.current_nav) if st.session_state.current_nav in NAV_OPTIONS else 0
     try:
         menu = st.segmented_control(
             "Nav",
-            ["Home", "Production Board", "Create Task", "Analytics"],
+            NAV_OPTIONS,
             default=st.session_state.current_nav,
             label_visibility="collapsed"
         )
     except AttributeError:
         menu = st.radio(
             "Nav",
-            ["Home", "Production Board", "Create Task", "Analytics"],
-            index=["Home", "Production Board", "Create Task", "Analytics"].index(st.session_state.current_nav),
+            NAV_OPTIONS,
+            index=current_idx,
             horizontal=True,
             label_visibility="collapsed"
         )
@@ -214,26 +323,23 @@ with nav_right:
 if not menu:
     menu = "Home"
 
-# Reset modal ketika berpindah menu navigasi
 if menu != st.session_state.current_nav:
     st.session_state.current_nav = menu
     st.session_state.active_task_id = None
+    st.session_state.is_dialog_open = False
     st.rerun()
 
 st.markdown("<div style='height: 1px; background: rgba(255,255,255,0.08); margin: 16px 0 26px 0;'></div>", unsafe_allow_html=True)
 
 # 6. Konten Halaman
 if menu == "Home":
-    # Baris Meta Header Atas
     h_top1, h_top2 = st.columns([1, 1])
     h_top1.markdown("<span style='font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #86868b;'>[ Creative Studio / 2026 ]</span>", unsafe_allow_html=True)
     h_top2.markdown("<div style='text-align: right; font-size: 11px; color: #ffd60a; letter-spacing: 1px; font-weight: 700;'>HONDA CENGKARENG MOTOR</div>", unsafe_allow_html=True)
 
     st.write("")
 
-    # Kolom Hero Showcase
     c_img, c_text = st.columns([1.6, 2], gap="large")
-    
     with c_img:
         img_target = "hero.png" if os.path.exists("hero.png") else ("hero.jpg" if os.path.exists("hero.jpg") else None)
         if img_target:
@@ -242,11 +348,11 @@ if menu == "Home":
             st.warning("File hero.png atau hero.jpg belum ditemukan di folder project.")
 
     with c_text:
+        st.markdown("<div style='font-size: 12px; color: #86868b; margin-bottom: 6px;'>[ Content Pipeline ]</div>", unsafe_allow_html=True)
         st.markdown("<div style='font-size: 42px; font-weight: 800; line-height: 1.1; letter-spacing: -1.5px; color: #f5f5f7; margin-bottom: 16px;'>Creative Department <br><span style='color: #ffd60a;'>of Honda Cengkareng.</span></div>", unsafe_allow_html=True)
         st.markdown("<p style='color: #a1a1a6; font-size: 15px; line-height: 1.6; max-width: 620px; margin-bottom: 24px;'>Ruang pusat kurasi brief, aset visual, draft video promo, dan automasi alur produksi konten harian secara tersentralisasi.</p>", unsafe_allow_html=True)
         st.markdown("<div style='font-size: 12px; color: #86868b;'>Sync Status: <strong style='color: #34d399;'>● Cloud Active</strong></div>", unsafe_allow_html=True)
 
-    # ------------------ SECTION REMINDER: HARI INI & BESOK (2 KOLOM) ------------------
     st.markdown("<div style='height: 1px; background: rgba(255,255,255,0.06); margin: 30px 0 24px 0;'></div>", unsafe_allow_html=True)
 
     today_tasks = [t for t in all_tasks if t["status"] != "Done" and t.get("deadline") == today_str]
@@ -254,7 +360,6 @@ if menu == "Home":
 
     col_today, col_tmrw = st.columns(2, gap="medium")
 
-    # KOLOM KIRI: TODAY
     with col_today:
         with st.container(border=True):
             th1, th2 = st.columns([2.2, 1])
@@ -283,6 +388,7 @@ if menu == "Home":
 
                     if st.button(f"📌 {t['title']}", key=f"tod_btn_{t['id']}", use_container_width=True):
                         st.session_state.active_task_id = t["id"]
+                        st.session_state.is_dialog_open = True
                         task_detail_modal(t["id"])
                     
                     st.markdown(f"""
@@ -298,7 +404,6 @@ if menu == "Home":
                     </div>
                 """, unsafe_allow_html=True)
 
-    # KOLOM KANAN: TOMORROW
     with col_tmrw:
         with st.container(border=True):
             tm1, tm2 = st.columns([2.2, 1])
@@ -327,6 +432,7 @@ if menu == "Home":
 
                     if st.button(f"📌 {t['title']}", key=f"tmrw_btn_{t['id']}", use_container_width=True):
                         st.session_state.active_task_id = t["id"]
+                        st.session_state.is_dialog_open = True
                         task_detail_modal(t["id"])
                     
                     st.markdown(f"""
@@ -343,9 +449,7 @@ if menu == "Home":
                 """, unsafe_allow_html=True)
 
     st.markdown("<div style='height: 1px; background: rgba(255,255,255,0.06); margin: 26px 0 28px 0;'></div>", unsafe_allow_html=True)
-    # ---------------------------------------------------------------------
 
-    # Section Operasional Bawah
     col_a, col_b = st.columns([2, 1], gap="large")
     with col_a:
         st.markdown("<div style='font-size: 12px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #86868b; margin-bottom: 12px;'>● Jadwal Perlu Perhatian</div>", unsafe_allow_html=True)
@@ -379,6 +483,208 @@ if menu == "Home":
                 c_lbl.markdown(f"<span style='font-size: 13.5px; font-weight: 600;'>{k}</span>", unsafe_allow_html=True)
                 c_bdg.markdown(f"<span style='background:{v['bg']}; color:{v['text']}; border:1px solid {v['border']}; font-size:10px; padding:3px 8px; border-radius:6px; font-weight:700;'>{v['label']}</span>", unsafe_allow_html=True)
 
+elif menu == "Kanban Board":
+    st.markdown("<h1 style='font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 2px;'>Kanban Board</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #86868b; font-size: 14px; margin-bottom: 20px;'>Pantau dan perbarui tahap pengerjaan setiap konten secara visual.</p>", unsafe_allow_html=True)
+
+    available_assignees = sorted(list(set(t["assignee"] for t in all_tasks if t.get("assignee"))))
+    f_col1, f_col2, f_col3, f_col4 = st.columns([1.2, 1.2, 0.8, 0.9], gap="medium")
+    selected_types = f_col1.multiselect("Tipe Format", AVAILABLE_TYPES, default=[], placeholder="Semua Format Konten")
+    selected_assignees = f_col2.multiselect("PIC / Editor", available_assignees, default=[], placeholder="Semua PIC")
+    
+    year_list = list(range(today.year, today.year + 11))
+    year_options = [0] + year_list
+    selected_year_filter = f_col3.selectbox(
+        "Tahun",
+        options=year_options,
+        index=year_options.index(today.year),
+        format_func=lambda x: "Semua Tahun" if x == 0 else str(x)
+    )
+    
+    month_options = [0] + list(range(1, 13))
+    selected_month_filter = f_col4.selectbox(
+        "Bulan",
+        options=month_options,
+        index=today.month,
+        format_func=lambda x: "Semua Bulan" if x == 0 else BULAN_MAP[x]
+    )
+
+    filtered_tasks = []
+    for t in all_tasks:
+        if selected_types and t.get("content_type", "Video") not in selected_types:
+            continue
+        if selected_assignees and t["assignee"] not in selected_assignees:
+            continue
+        if selected_year_filter != 0 or selected_month_filter != 0:
+            if t.get("deadline"):
+                try:
+                    task_dt = datetime.strptime(t["deadline"], "%Y-%m-%d")
+                    if selected_year_filter != 0 and task_dt.year != selected_year_filter:
+                        continue
+                    if selected_month_filter != 0 and task_dt.month != selected_month_filter:
+                        continue
+                except:
+                    continue
+            else:
+                continue
+        filtered_tasks.append(t)
+
+    st.write("")
+    cols = st.columns(len(COLUMNS_STATUS))
+
+    for idx, col_name in enumerate(COLUMNS_STATUS):
+        with cols[idx]:
+            col_tasks = [t for t in filtered_tasks if t["status"] == col_name]
+            
+            with st.container(border=True):
+                c_col_h, c_col_cnt = st.columns([3, 1])
+                c_col_h.markdown(f"**{col_name}**")
+                c_col_cnt.markdown(f"<span style='opacity:0.7; font-size:12px; font-weight:600;'>{len(col_tasks)}</span>", unsafe_allow_html=True)
+
+            for task in col_tasks:
+                c_type = task.get("content_type", "Video")
+                c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
+                is_overdue = (task["status"] != "Done") and bool(task.get("deadline")) and (task["deadline"] < today_str)
+                plat_display = format_platform_display(task.get("platform", ""))
+
+                with st.container(border=True):
+                    st.markdown(f"""
+                        <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;'>
+                            <span style='background: {c_conf['bg']}; color: {c_conf['text']}; border: 1px solid {c_conf['border']}; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 6px;'>
+                                {c_conf['label']}
+                            </span>
+                            <span style='font-size: 11.5px; opacity: 0.75; font-weight: 500;' title='{task.get("platform", "")}'>{plat_display}</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
+                        st.image(task["thumbnail_path"], use_container_width=True)
+
+                    if st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True):
+                        st.session_state.active_task_id = task["id"]
+                        st.session_state.is_dialog_open = True
+                        task_detail_modal(task["id"])
+
+                    st.caption(f"👤 {task['assignee']} • 📅 {task['deadline']}")
+                    
+                    if is_overdue:
+                        st.markdown("<div style='font-size: 11px; margin-bottom: 8px;'><span style='color:#ff453a; font-weight:600;'>⚠️ Overdue</span></div>", unsafe_allow_html=True)
+
+                    new_st = st.selectbox("Status", COLUMNS_STATUS, index=COLUMNS_STATUS.index(task['status']), key=f"st_{task['id']}", label_visibility="collapsed")
+                    if new_st != task['status']:
+                        db.update_status(task['id'], new_st)
+                        st.rerun()
+
+elif menu == "Calendar":
+    st.markdown("<h1 style='font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 2px;'>Calendar</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #86868b; font-size: 14px; margin-bottom: 20px;'>Jadwal tenggat waktu dan agenda posting harian.</p>", unsafe_allow_html=True)
+
+    available_assignees = sorted(list(set(t["assignee"] for t in all_tasks if t.get("assignee"))))
+    cf1, cf2, cf3, cf4 = st.columns([1.2, 1.2, 0.8, 0.9], gap="medium")
+    cal_selected_types = cf1.multiselect("Tipe Format", AVAILABLE_TYPES, default=[], placeholder="Semua Format Konten", key="c_type_f")
+    cal_selected_assignees = cf2.multiselect("PIC / Editor", available_assignees, default=[], placeholder="Semua PIC", key="c_pic_f")
+
+    current_year = today.year
+    cal_year_options = list(range(current_year, current_year + 11))
+    selected_year = cf3.selectbox("Tahun", options=cal_year_options, index=0, key="c_year_s")
+    selected_month_num = cf4.selectbox("Bulan", options=list(range(1, 13)), format_func=lambda x: BULAN_MAP[x], index=today.month - 1, key="c_mo_s")
+
+    cal_tasks = []
+    for t in all_tasks:
+        if cal_selected_types and t.get("content_type", "Video") not in cal_selected_types:
+            continue
+        if cal_selected_assignees and t["assignee"] not in cal_selected_assignees:
+            continue
+        cal_tasks.append(t)
+
+    cal = calendar.monthcalendar(selected_year, selected_month_num)
+    week_days = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
+
+    with st.container(border=True):
+        cal_h1, cal_h2 = st.columns([2, 1])
+        with cal_h1:
+            st.markdown(f"<div style='font-size:12px; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:#86868b;'>{BULAN_MAP[selected_month_num].upper()} {selected_year}</div>", unsafe_allow_html=True)
+        with cal_h2:
+            st.markdown("<div style='text-align:right; font-size:11px; color:#86868b;'><span style='color:#ff453a; font-size:14px;'>●</span> Ada Task Terjadwal</div>", unsafe_allow_html=True)
+
+        st.write("")
+        header_cols = st.columns(7)
+        for i, h in enumerate(week_days):
+            header_cols[i].markdown(f"<div style='text-align:center; font-size:12.5px; font-weight:700; color:#86868b;'>{h}</div>", unsafe_allow_html=True)
+
+        for week in cal:
+            day_cols = st.columns(7)
+            for d_idx, day in enumerate(week):
+                with day_cols[d_idx]:
+                    if day == 0:
+                        st.markdown("<div style='height:50px;'></div>", unsafe_allow_html=True)
+                    else:
+                        day_str = f"{selected_year:04d}-{selected_month_num:02d}-{day:02d}"
+                        day_tasks = [t for t in cal_tasks if t.get("deadline") == day_str]
+                        has_task = len(day_tasks) > 0
+                        is_selected = (day_str == st.session_state.selected_cal_date)
+
+                        btn_label = f"{day}  •" if has_task else str(day)
+                        btn_kind = "primary" if is_selected else "secondary"
+
+                        if st.button(btn_label, key=f"cal_page_{day_str}", use_container_width=True, type=btn_kind):
+                            st.session_state.selected_cal_date = day_str
+                            st.rerun()
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    try:
+        sel_dt = datetime.strptime(st.session_state.selected_cal_date, "%Y-%m-%d").date()
+        sel_display_date = format_id_date(sel_dt)
+    except:
+        sel_display_date = st.session_state.selected_cal_date
+
+    tasks_on_selected_date = [t for t in cal_tasks if t.get("deadline") == st.session_state.selected_cal_date]
+
+    st.markdown(f"<div style='font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#86868b; margin-bottom:8px;'>● AGENDA TERJADWAL: {sel_display_date}</div>", unsafe_allow_html=True)
+
+    if tasks_on_selected_date:
+        for task in tasks_on_selected_date:
+            c_type = task.get("content_type", "Video")
+            c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
+            initial = (task["assignee"][:1] if task.get("assignee") else "U").upper()
+            plat_display = format_platform_display(task.get("platform", ""))
+
+            with st.container(border=True):
+                card_c1, card_c2 = st.columns([4, 1.2], gap="small")
+                with card_c1:
+                    st.markdown(f"""
+                        <div style='display: flex; align-items: center; gap: 14px; margin-bottom: 8px;'>
+                            <div style='width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #f59e0b 0%, #ffd60a 100%); color: #000; font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;'>
+                                {initial}
+                            </div>
+                            <div>
+                                <div style='font-size: 14px; font-weight: 700; color: #f5f5f7;'>{task['assignee']}</div>
+                                <div style='font-size: 12px; color: #86868b;'>Status: <strong style='color:#f5f5f7;'>{task['status']}</strong> • Platform: <span title='{task.get("platform", "")}'>{plat_display}</span></div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button(f"📌 {task['title']}", key=f"cal_card_{task['id']}", use_container_width=True):
+                        st.session_state.active_task_id = task["id"]
+                        st.session_state.is_dialog_open = True
+                        task_detail_modal(task["id"])
+
+                with card_c2:
+                    st.markdown(f"""
+                        <div style='text-align: right; padding-top: 8px;'>
+                            <span style='background: {c_conf['bg']}; color: {c_conf['text']}; border: 1px solid {c_conf['border']}; font-size: 11px; padding: 4px 10px; border-radius: 8px; font-weight: 700;'>
+                                {c_type}
+                            </span>
+                        </div>
+                    """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+            <div style='background: rgba(28, 28, 30, 0.35); border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px; padding: 22px; text-align: center; color: #86868b; font-size: 13.5px;'>
+                Tidak ada jadwal brief atau posting untuk tanggal ini ({sel_display_date}).
+            </div>
+        """, unsafe_allow_html=True)
+
 elif menu == "Create Task":
     st.markdown("<h1 style='font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 2px;'>Create Task</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #86868b; font-size: 14px; margin-bottom: 20px;'>Input brief konten baru untuk tim kreatif.</p>", unsafe_allow_html=True)
@@ -392,7 +698,7 @@ elif menu == "Create Task":
             col3, col4, col5, col6 = st.columns(4)
             deadline = col3.date_input("Deadline", today)
             content_type = col4.selectbox("Tipe Konten", AVAILABLE_TYPES)
-            platform = col5.selectbox("Platform Target", AVAILABLE_PLATFORMS)
+            platforms = col5.multiselect("Platform Target", AVAILABLE_PLATFORMS, default=["TikTok"], placeholder="Pilih platform...")
             status = col6.selectbox("Status Awal", COLUMNS_STATUS)
 
             description = st.text_area("Deskripsi / Catatan Brief", placeholder="Tuliskan catatan hook, revisi, atau referensi angle...")
@@ -401,8 +707,9 @@ elif menu == "Create Task":
             submitted = st.form_submit_button("Simpan Brief Konten", use_container_width=True)
             if submitted:
                 if title and assignee:
-                    db.add_task(title, assignee, str(deadline), platform, status, asset_link.strip(), {}, content_type, description.strip())
-                    st.toast("Brief berhasil disimpan!", icon="✨")
+                    platform_str = ", ".join(platforms) if platforms else "General"
+                    db.add_task(title, assignee, str(deadline), platform_str, status, asset_link.strip(), {}, content_type, description.strip())
+                    st.session_state.success_msg = f"Task '{title}' berhasil dibuat!"
                     st.rerun()
                 else:
                     st.error("Mohon lengkapi Judul dan PIC.")
@@ -433,148 +740,3 @@ elif menu == "Analytics":
     ck1.metric("Video Production", c_vid)
     ck2.metric("Poster Single", c_pos)
     ck3.metric("Campaign Poster", c_cam)
-
-elif menu == "Production Board":
-    # Header & Baris Kontrol Langsung Terbuka
-    h_col, v_col = st.columns([2, 1])
-    with h_col:
-        st.markdown("<h1 style='font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 2px;'>Production Board</h1>", unsafe_allow_html=True)
-    with v_col:
-        view_mode = st.radio("Tampilan", ["Kanban Board", "Kalender Bulanan"], horizontal=True, label_visibility="collapsed")
-
-    # Baris Filter Langsung Terbuka
-    available_assignees = sorted(list(set(t["assignee"] for t in all_tasks if t.get("assignee"))))
-    f_col1, f_col2 = st.columns([1, 1], gap="medium")
-    selected_types = f_col1.multiselect("Tipe Format", AVAILABLE_TYPES, default=[], placeholder="Semua Format Konten")
-    selected_assignees = f_col2.multiselect("PIC / Editor", available_assignees, default=[], placeholder="Semua PIC")
-
-    filtered_tasks = []
-    for t in all_tasks:
-        if selected_types and t.get("content_type", "Video") not in selected_types:
-            continue
-        if selected_assignees and t["assignee"] not in selected_assignees:
-            continue
-        filtered_tasks.append(t)
-
-    st.write("")
-
-    if "Kanban Board" in view_mode:
-        cols = st.columns(len(COLUMNS_STATUS))
-
-        for idx, col_name in enumerate(COLUMNS_STATUS):
-            with cols[idx]:
-                col_tasks = [t for t in filtered_tasks if t["status"] == col_name]
-                
-                with st.container(border=True):
-                    c_col_h, c_col_cnt = st.columns([3, 1])
-                    c_col_h.markdown(f"**{col_name}**")
-                    c_col_cnt.markdown(f"<span style='opacity:0.7; font-size:12px; font-weight:600;'>{len(col_tasks)}</span>", unsafe_allow_html=True)
-
-                for task in col_tasks:
-                    c_type = task.get("content_type", "Video")
-                    c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
-                    is_overdue = (task["status"] != "Done") and bool(task.get("deadline")) and (task["deadline"] < today_str)
-
-                    with st.container(border=True):
-                        st.markdown(f"""
-                            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;'>
-                                <span style='background: {c_conf['bg']}; color: {c_conf['text']}; border: 1px solid {c_conf['border']}; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 6px;'>
-                                    {c_conf['label']}
-                                </span>
-                                <span style='font-size: 12px; opacity: 0.7;'>{task['platform']}</span>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-                        if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
-                            st.image(task["thumbnail_path"], use_container_width=True)
-
-                        # Buka modal langsung
-                        if st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True):
-                            st.session_state.active_task_id = task["id"]
-                            task_detail_modal(task["id"])
-
-                        st.caption(f"👤 {task['assignee']} • 📅 {task['deadline']}")
-                        
-                        if is_overdue:
-                            st.markdown("<div style='font-size: 11px; margin-bottom: 8px;'><span style='color:#ff453a; font-weight:600;'>⚠️ Overdue</span></div>", unsafe_allow_html=True)
-
-                        new_st = st.selectbox("Status", COLUMNS_STATUS, index=COLUMNS_STATUS.index(task['status']), key=f"st_{task['id']}", label_visibility="collapsed")
-                        if new_st != task['status']:
-                            db.update_status(task['id'], new_st)
-                            st.rerun()
-
-    else:
-        c_yr, c_mo = st.columns([1, 2])
-        current_year = today.year
-        current_month = today.month
-
-        selected_year = c_yr.selectbox("Tahun", options=list(range(current_year - 1, current_year + 3)), index=1)
-        selected_month_num = c_mo.selectbox("Bulan", options=list(range(1, 13)), format_func=lambda x: calendar.month_name[x], index=current_month - 1)
-
-        cal = calendar.monthcalendar(selected_year, selected_month_num)
-        week_days = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
-        
-        # Injeksi CSS Khusus Kalender: Memaksa semua container tanggal seragam rounded 14px dan tinggi minimal 120px
-        st.markdown("""
-            <style>
-                div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlockBorderWrapper"] {
-                    border-radius: 14px !important;
-                    min-height: 120px !important;
-                    background: rgba(255, 255, 255, 0.02) !important;
-                    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-                    display: flex !important;
-                    flex-direction: column !important;
-                    justify-content: flex-start !important;
-                    transition: all 0.2s ease !important;
-                    margin-bottom: 10px !important;
-                }
-                div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-                    border-color: rgba(255, 214, 10, 0.35) !important;
-                }
-                div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlock"] {
-                    min-height: 100% !important;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-
-        header_cols = st.columns(7)
-        for i, h in enumerate(week_days):
-            header_cols[i].markdown(f"<div style='text-align:center; font-size:13px; font-weight:600; opacity:0.6; padding-bottom:12px;'>{h}</div>", unsafe_allow_html=True)
-
-        for week in cal:
-            day_cols = st.columns(7)
-            for d_idx, day in enumerate(week):
-                with day_cols[d_idx]:
-                    if day == 0:
-                        st.markdown("<div style='min-height: 120px; background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 14px; margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-                    else:
-                        day_str = f"{selected_year:04d}-{selected_month_num:02d}-{day:02d}"
-                        day_tasks = [t for t in filtered_tasks if t.get("deadline") == day_str]
-                        is_current_day = (day_str == today_str)
-
-                        with st.container(border=True):
-                            date_color = "#ffd60a" if is_current_day else "#f5f5f7"
-                            st.markdown(f"<div style='font-size: 13px; font-weight: 700; color: {date_color}; text-align: right; margin-bottom: 8px;'>{day}</div>", unsafe_allow_html=True)
-                            
-                            for t in day_tasks:
-                                c_type = t.get("content_type", "Video")
-                                c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
-                                
-                                st.markdown(f"""
-                                    <style>
-                                        button[key="cal_btn_{t['id']}"] {{
-                                            background-color: {c_conf['bg']} !important;
-                                            border: 1px solid {c_conf['border']} !important;
-                                            color: {c_conf['text']} !important;
-                                            border-radius: 8px !important;
-                                            font-size: 11px !important;
-                                            font-weight: 600 !important;
-                                            padding: 4px 6px !important;
-                                            margin-bottom: 4px !important;
-                                        }}
-                                    </style>
-                                """, unsafe_allow_html=True)
-                                
-                                if st.button(f"● {t['title']}", key=f"cal_btn_{t['id']}", use_container_width=True):
-                                    st.session_state.active_task_id = t["id"]
-                                    task_detail_modal(t["id"])
