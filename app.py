@@ -20,6 +20,8 @@ if "active_task_id" not in st.session_state:
     st.session_state.active_task_id = None
 if "keep_dialog_open" not in st.session_state:
     st.session_state.keep_dialog_open = False
+if "upload_key" not in st.session_state:
+    st.session_state.upload_key = 0
 
 # Render notifikasi toast jika ada pesan sukses dari action sebelumnya
 if st.session_state.success_msg:
@@ -238,23 +240,25 @@ def task_detail_modal(task_id):
                 st.rerun()
 
         with st.expander("Upload / Ganti Media"):
-            up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"d_up_v_{task['id']}")
+            up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"d_up_v_{task['id']}_{st.session_state.upload_key}")
             if up_vid:
                 v_ext = os.path.splitext(up_vid.name)[1]
                 v_path = os.path.join(UPLOAD_DIR, f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}")
                 with open(v_path, "wb") as f:
                     f.write(up_vid.getbuffer())
                 db.update_media_path(task['id'], "video_path", v_path)
+                st.session_state.upload_key += 1  # Reset uploader agar tidak loop
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
-            up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}")
+            up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}_{st.session_state.upload_key}")
             if up_img:
                 i_ext = os.path.splitext(up_img.name)[1]
                 i_path = os.path.join(UPLOAD_DIR, f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}")
                 with open(i_path, "wb") as f:
                     f.write(up_img.getbuffer())
                 db.update_media_path(task['id'], "thumbnail_path", i_path)
+                st.session_state.upload_key += 1  # Reset uploader agar tidak loop
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
