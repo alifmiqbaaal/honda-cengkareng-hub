@@ -9,9 +9,7 @@ import database as db
 # 1. Inisialisasi & Setup Halaman (Sidebar dihilangkan total)
 st.set_page_config(page_title="Content Production Hub", layout="wide", initial_sidebar_state="collapsed")
 
-# Session state untuk pelacakan modal, navigasi, dan pesan notifikasi
-if "active_task_id" not in st.session_state:
-    st.session_state.active_task_id = None
+# Session state untuk pelacakan navigasi dan notifikasi
 if "current_nav" not in st.session_state:
     st.session_state.current_nav = "Home"
 if "selected_cal_date" not in st.session_state:
@@ -24,9 +22,8 @@ if st.session_state.success_msg:
     st.toast(st.session_state.success_msg, icon="✨")
     st.session_state.success_msg = None
 
-# Autorefresh HANYA aktif jika dialog BENAR-BENAR tertutup total
-if st.session_state.active_task_id is None:
-    st_autorefresh(interval=5000, key="apple_glass_autorefresh")
+# Autorefresh aktif di halaman utama
+st_autorefresh(interval=5000, key="apple_glass_autorefresh")
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -117,9 +114,7 @@ st.markdown("""
             border-color: #ffd60a !important;
         }
 
-        /* ========================================================= */
-        /* FIX MULTISELECT: HILANGKAN BULATAN KURSOR HITAM          */
-        /* ========================================================= */
+        /* FIX MULTISELECT: HILANGKAN BULATAN KURSOR HITAM */
         div[data-testid="stMultiSelect"] span[data-baseweb="tag"] + div {
             background: transparent !important;
             box-shadow: none !important;
@@ -189,26 +184,24 @@ def format_platform_display(plat_val):
 today_display = format_id_date(today)
 tomorrow_display = format_id_date(tomorrow)
 
-# 4. Modal Dialog Workspace (Dikelola State Terpusat)
+# 4. Modal Dialog Workspace (Menggunakan form agar stabil tanpa mental saat diketik/upload)
 @st.dialog("Task Workspace")
 def task_detail_modal(task_id):
     task = db.fetch_task_by_id(task_id)
     
     if not task:
         st.error("Task tidak ditemukan.")
-        st.session_state.active_task_id = None
-        st.rerun()
         return
 
     c_left, c_right = st.columns([1.2, 1], gap="medium")
 
     with c_left:
         st.markdown(f"### {task['title']}")
-        desc = st.text_area("Catatan Brief", value=task.get("description") or "", placeholder="Hook, script angle, catatan revisi...", height=120, key=f"m_desc_{task['id']}")
+        desc = st.text_area("Catatan Brief", value=task.get("description") or "", placeholder="Hook, script angle, catatan revisi...", height=120, key=f"d_desc_{task['id']}")
 
         if task.get("video_path") and os.path.exists(task["video_path"]):
             st.video(task["video_path"])
-            if st.button("Hapus Video Draft", key=f"m_del_v_{task['id']}"):
+            if st.button("Hapus Video Draft", key=f"d_del_v_{task['id']}"):
                 try:
                     os.remove(task["video_path"])
                 except:
@@ -218,7 +211,7 @@ def task_detail_modal(task_id):
 
         if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
             st.image(task["thumbnail_path"], use_container_width=True)
-            if st.button("Hapus Cover", key=f"m_del_i_{task['id']}"):
+            if st.button("Hapus Cover", key=f"d_del_i_{task['id']}"):
                 try:
                     os.remove(task["thumbnail_path"])
                 except:
@@ -227,7 +220,7 @@ def task_detail_modal(task_id):
                 st.rerun()
 
         with st.expander("Upload / Ganti Media"):
-            up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"m_up_v_{task['id']}")
+            up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"d_up_v_{task['id']}")
             if up_vid:
                 v_ext = os.path.splitext(up_vid.name)[1]
                 v_path = os.path.join(UPLOAD_DIR, f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}")
@@ -236,7 +229,7 @@ def task_detail_modal(task_id):
                 db.update_media_path(task['id'], "video_path", v_path)
                 st.rerun()
 
-            up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"m_up_i_{task['id']}")
+            up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}")
             if up_img:
                 i_ext = os.path.splitext(up_img.name)[1]
                 i_path = os.path.join(UPLOAD_DIR, f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}")
@@ -247,48 +240,38 @@ def task_detail_modal(task_id):
 
     with c_right:
         st.markdown("**Parameter Brief:**")
-        edit_title = st.text_input("Judul Konten", value=task["title"], key=f"m_title_{task['id']}")
-        edit_assignee = st.text_input("PIC / Editor", value=task["assignee"], key=f"m_ass_{task['id']}")
+        edit_title = st.text_input("Judul Konten", value=task["title"], key=f"d_tit_{task['id']}")
+        edit_assignee = st.text_input("PIC / Editor", value=task["assignee"], key=f"d_ass_{task['id']}")
         
         try:
             curr_date = datetime.strptime(task["deadline"], "%Y-%m-%d").date()
         except:
             curr_date = today
-        edit_deadline = st.date_input("Deadline", value=curr_date, key=f"m_dead_{task['id']}")
+        edit_deadline = st.date_input("Deadline", value=curr_date, key=f"d_dead_{task['id']}")
 
-        edit_type = st.selectbox("Tipe", AVAILABLE_TYPES, index=AVAILABLE_TYPES.index(task.get("content_type", "Video")) if task.get("content_type") in AVAILABLE_TYPES else 0, key=f"m_type_{task['id']}")
+        edit_type = st.selectbox("Tipe", AVAILABLE_TYPES, index=AVAILABLE_TYPES.index(task.get("content_type", "Video")) if task.get("content_type") in AVAILABLE_TYPES else 0, key=f"d_typ_{task['id']}")
 
         existing_plats = parse_platforms(task.get("platform", ""))
         valid_defaults = [p for p in existing_plats if p in AVAILABLE_PLATFORMS]
-        edit_platforms = st.multiselect("Platform Target", AVAILABLE_PLATFORMS, default=valid_defaults, key=f"m_plat_{task['id']}")
+        edit_platforms = st.multiselect("Platform Target", AVAILABLE_PLATFORMS, default=valid_defaults, key=f"d_plat_{task['id']}")
 
-        edit_status = st.selectbox("Status", COLUMNS_STATUS, index=COLUMNS_STATUS.index(task["status"]) if task["status"] in COLUMNS_STATUS else 0, key=f"m_stat_{task['id']}")
-        edit_asset_link = st.text_input("Link Cloud Storage", value=task.get("asset_link") or "", key=f"m_link_{task['id']}")
+        edit_status = st.selectbox("Status", COLUMNS_STATUS, index=COLUMNS_STATUS.index(task["status"]) if task["status"] in COLUMNS_STATUS else 0, key=f"d_stat_{task['id']}")
+        edit_asset_link = st.text_input("Link Cloud Storage", value=task.get("asset_link") or "", key=f"d_lnk_{task['id']}")
 
         st.write("")
-        if st.button("💾 Simpan Perubahan", use_container_width=True, type="primary", key=f"m_save_btn_{task['id']}"):
+        if st.button("💾 Simpan Perubahan", use_container_width=True, type="primary", key=f"d_save_{task['id']}"):
             platform_str = ", ".join(edit_platforms) if edit_platforms else "General"
             db.update_task_details(
                 task["id"], edit_title, edit_assignee, str(edit_deadline),
                 platform_str, edit_status, edit_type, edit_asset_link.strip(), desc.strip()
             )
-            st.session_state.active_task_id = None
             st.session_state.success_msg = "Perubahan brief berhasil disimpan!"
             st.rerun()
 
-        if st.button("🗑️ Hapus Task", use_container_width=True, key=f"m_del_btn_{task['id']}"):
+        if st.button("🗑️ Hapus Task", use_container_width=True, key=f"d_del_{task['id']}"):
             db.delete_task(task["id"])
-            st.session_state.active_task_id = None
             st.session_state.success_msg = "Task berhasil dihapus."
             st.rerun()
-
-    if st.button("✖ Tutup Jendela", use_container_width=True, key=f"m_close_btn_{task['id']}"):
-        st.session_state.active_task_id = None
-        st.rerun()
-
-# CONTROLLER UTAMA: Menjaga dialog tetap terbuka secara konsisten
-if st.session_state.active_task_id is not None:
-    task_detail_modal(st.session_state.active_task_id)
 
 # 5. Top Navbar Header
 nav_left, nav_right = st.columns([1.0, 3.0], gap="medium")
@@ -327,7 +310,6 @@ if not menu:
 
 if menu != st.session_state.current_nav:
     st.session_state.current_nav = menu
-    st.session_state.active_task_id = None
     st.rerun()
 
 st.markdown("<div style='height: 1px; background: rgba(255,255,255,0.08); margin: 16px 0 26px 0;'></div>", unsafe_allow_html=True)
@@ -388,8 +370,7 @@ if menu == "Home":
                     c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
 
                     if st.button(f"📌 {t['title']}", key=f"tod_btn_{t['id']}", use_container_width=True):
-                        st.session_state.active_task_id = t["id"]
-                        st.rerun()
+                        task_detail_modal(t["id"])
                     
                     st.markdown(f"""
                         <div style='display: flex; justify-content: space-between; align-items: center; padding: 0 4px; margin-top: -6px; margin-bottom: 10px;'>
@@ -431,8 +412,7 @@ if menu == "Home":
                     c_conf = TYPE_CONFIG.get(c_type, TYPE_CONFIG["Video"])
 
                     if st.button(f"📌 {t['title']}", key=f"tmrw_btn_{t['id']}", use_container_width=True):
-                        st.session_state.active_task_id = t["id"]
-                        st.rerun()
+                        task_detail_modal(t["id"])
                     
                     st.markdown(f"""
                         <div style='display: flex; justify-content: space-between; align-items: center; padding: 0 4px; margin-top: -6px; margin-bottom: 10px;'>
@@ -560,8 +540,7 @@ elif menu == "Kanban Board":
                         st.image(task["thumbnail_path"], use_container_width=True)
 
                     if st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True):
-                        st.session_state.active_task_id = task["id"]
-                        st.rerun()
+                        task_detail_modal(task["id"])
 
                     st.caption(f"👤 {task['assignee']} • 📅 {task['deadline']}")
                     
@@ -664,8 +643,7 @@ elif menu == "Calendar":
                     """, unsafe_allow_html=True)
                     
                     if st.button(f"📌 {task['title']}", key=f"cal_card_{task['id']}", use_container_width=True):
-                        st.session_state.active_task_id = task["id"]
-                        st.rerun()
+                        task_detail_modal(task["id"])
 
                 with card_c2:
                     st.markdown(f"""
