@@ -37,8 +37,6 @@ if _prev_dialog_seen and not st.session_state.get("keep_dialog_open", False):
 if st.session_state.active_task_id is None:
     st_autorefresh(interval=5000, key="apple_glass_autorefresh")
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 db.init_and_migrate_db()
 
 # 2. Muat Styling Eksternal & CSS Top Navbar
@@ -217,48 +215,43 @@ def task_detail_modal(task_id):
         st.markdown(f"### {task['title']}")
         desc = st.text_area("Catatan Brief", value=task.get("description") or "", placeholder="Hook, script angle, catatan revisi...", height=120, key=f"d_desc_{task['id']}")
 
-        if task.get("video_path") and os.path.exists(task["video_path"]):
-            st.video(task["video_path"])
+        if task.get("video_path"):
+            st.video(db.get_public_url(task["video_path"]))
             if st.button("Hapus Video Draft", key=f"d_del_v_{task['id']}"):
-                try:
-                    os.remove(task["video_path"])
-                except:
-                    pass
+                db.delete_file_from_storage(task["video_path"])
                 db.update_media_path(task['id'], "video_path", "")
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
-        if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
-            st.image(task["thumbnail_path"], use_container_width=True)
+        if task.get("thumbnail_path"):
+            st.image(db.get_public_url(task["thumbnail_path"]), use_container_width=True)
             if st.button("Hapus Cover", key=f"d_del_i_{task['id']}"):
-                try:
-                    os.remove(task["thumbnail_path"])
-                except:
-                    pass
+                db.delete_file_from_storage(task["thumbnail_path"])
                 db.update_media_path(task['id'], "thumbnail_path", "")
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
         with st.expander("Upload / Ganti Media"):
+            _ct_video = {".mp4": "video/mp4", ".mov": "video/quicktime"}
+            _ct_image = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
             up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"d_up_v_{task['id']}_{st.session_state.upload_key}")
             if up_vid:
-                v_ext = os.path.splitext(up_vid.name)[1]
-                v_path = os.path.join(UPLOAD_DIR, f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}")
-                with open(v_path, "wb") as f:
-                    f.write(up_vid.getbuffer())
+                v_ext = os.path.splitext(up_vid.name)[1].lower()
+                v_path = f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}"
+                db.upload_file(up_vid.getbuffer().tobytes(), v_path, _ct_video.get(v_ext, "video/mp4"))
                 db.update_media_path(task['id'], "video_path", v_path)
-                st.session_state.upload_key += 1  # Reset uploader agar tidak loop
+                st.session_state.upload_key += 1
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
             up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}_{st.session_state.upload_key}")
             if up_img:
-                i_ext = os.path.splitext(up_img.name)[1]
-                i_path = os.path.join(UPLOAD_DIR, f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}")
-                with open(i_path, "wb") as f:
-                    f.write(up_img.getbuffer())
+                i_ext = os.path.splitext(up_img.name)[1].lower()
+                i_path = f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}"
+                db.upload_file(up_img.getbuffer().tobytes(), i_path, _ct_image.get(i_ext, "image/jpeg"))
                 db.update_media_path(task['id'], "thumbnail_path", i_path)
-                st.session_state.upload_key += 1  # Reset uploader agar tidak loop
+                st.session_state.upload_key += 1
                 st.session_state.keep_dialog_open = True
                 st.rerun()
 
@@ -565,8 +558,8 @@ elif menu == "Kanban Board":
                         </div>
                     """, unsafe_allow_html=True)
 
-                    if task.get("thumbnail_path") and os.path.exists(task["thumbnail_path"]):
-                        st.image(task["thumbnail_path"], use_container_width=True)
+                    if task.get("thumbnail_path"):
+                        st.image(db.get_public_url(task["thumbnail_path"]), use_container_width=True)
 
                     st.button(f"📌 {task['title']}", key=f"open_{task['id']}", use_container_width=True, on_click=_open_task_dialog, args=(task["id"],))
 
