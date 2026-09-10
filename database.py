@@ -71,12 +71,26 @@ def get_public_url(storage_path: str) -> str:
 
 def upload_file(file_bytes: bytes, storage_path: str, content_type: str = "application/octet-stream") -> str:
     """Upload file ke Supabase Storage, return storage path."""
-    get_db().storage.from_(BUCKET).upload(
-        storage_path,
-        file_bytes,
-        {"content-type": content_type, "upsert": "true"}
-    )
-    return storage_path
+    try:
+        get_db().storage.from_(BUCKET).upload(
+            storage_path,
+            file_bytes,
+            {"content-type": content_type, "upsert": "true"}
+        )
+        return storage_path
+    except Exception as e:
+        err_msg = str(e)
+        if "Bucket not found" in err_msg or "NoSuchBucket" in err_msg or "404" in err_msg:
+            raise RuntimeError(
+                f"Bucket '{BUCKET}' belum dibuat di Supabase Storage. "
+                f"Silakan buat bucket bernama '{BUCKET}' (centang Public) di Supabase Dashboard -> Storage."
+            ) from e
+        elif "row-level security" in err_msg.lower() or "unauthorized" in err_msg.lower() or "403" in err_msg:
+            raise RuntimeError(
+                f"Izin akses Storage ditolak (RLS Policy). "
+                f"Pastikan sudah menambahkan Storage Policy (INSERT & SELECT) untuk publik pada bucket '{BUCKET}'."
+            ) from e
+        raise e
 
 def delete_file_from_storage(storage_path: str):
     """Hapus file dari Supabase Storage. Aman dipanggil dengan path kosong."""

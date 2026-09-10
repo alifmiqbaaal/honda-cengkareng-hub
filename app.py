@@ -237,23 +237,29 @@ def task_detail_modal(task_id):
 
             up_vid = st.file_uploader("Upload Video Preview", type=["mp4", "mov"], key=f"d_up_v_{task['id']}_{st.session_state.upload_key}")
             if up_vid:
-                v_ext = os.path.splitext(up_vid.name)[1].lower()
-                v_path = f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}"
-                db.upload_file(up_vid.getbuffer().tobytes(), v_path, _ct_video.get(v_ext, "video/mp4"))
-                db.update_media_path(task['id'], "video_path", v_path)
-                st.session_state.upload_key += 1
-                st.session_state.keep_dialog_open = True
-                st.rerun()
+                try:
+                    v_ext = os.path.splitext(up_vid.name)[1].lower()
+                    v_path = f"v_{task['id']}_{int(datetime.now().timestamp())}{v_ext}"
+                    db.upload_file(up_vid.getbuffer().tobytes(), v_path, _ct_video.get(v_ext, "video/mp4"))
+                    db.update_media_path(task['id'], "video_path", v_path)
+                    st.session_state.upload_key += 1
+                    st.session_state.keep_dialog_open = True
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"⚠️ {err}")
 
             up_img = st.file_uploader("Upload Cover", type=["png", "jpg", "jpeg", "webp"], key=f"d_up_i_{task['id']}_{st.session_state.upload_key}")
             if up_img:
-                i_ext = os.path.splitext(up_img.name)[1].lower()
-                i_path = f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}"
-                db.upload_file(up_img.getbuffer().tobytes(), i_path, _ct_image.get(i_ext, "image/jpeg"))
-                db.update_media_path(task['id'], "thumbnail_path", i_path)
-                st.session_state.upload_key += 1
-                st.session_state.keep_dialog_open = True
-                st.rerun()
+                try:
+                    i_ext = os.path.splitext(up_img.name)[1].lower()
+                    i_path = f"i_{task['id']}_{int(datetime.now().timestamp())}{i_ext}"
+                    db.upload_file(up_img.getbuffer().tobytes(), i_path, _ct_image.get(i_ext, "image/jpeg"))
+                    db.update_media_path(task['id'], "thumbnail_path", i_path)
+                    st.session_state.upload_key += 1
+                    st.session_state.keep_dialog_open = True
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"⚠️ {err}")
 
     with c_right:
         st.markdown("**Parameter Brief:**")
